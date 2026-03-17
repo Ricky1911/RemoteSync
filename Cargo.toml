@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = ["client", "server"]
+
+[workspace.dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+config = "0.15.21"
+
+
+[workspace.package]
+authors = ["Ricky1911"]

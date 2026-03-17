@@ -1,0 +1,10 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+config.workspace = true
+flate2 = { version = "1.1.9", features = ["zlib-rs"] }
+reqwest = "0.13.2"
+serde.workspace = true

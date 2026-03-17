@@ -1,0 +1,12 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+actix-web = "4.13.0"
+config.workspace = true
+diesel = "2.3.7"
+dotenv = "0.15.0"
+serde.workspace = true
+tokio = "1.50.0"
