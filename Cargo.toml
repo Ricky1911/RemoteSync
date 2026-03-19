@@ -5,6 +5,7 @@ members = ["client", "server"]
 [workspace.dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 config = "0.15.21"
+tokio = { version = "1.50.0", features = ["full"] }
 
 
 [workspace.package]

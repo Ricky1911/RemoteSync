@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+actix-multipart = "0.7.2"
 actix-web = "4.13.0"
 config.workspace = true
 diesel = "2.3.7"
 dotenv = "0.15.0"
+futures-util = "0.3.32"
 serde.workspace = true
-tokio = "1.50.0"
+tokio.workspace = true
