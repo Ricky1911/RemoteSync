@@ -1,3 +1,3 @@
 mod file;
 
-pub use file::upload;
+pub use file::{upload, download};
