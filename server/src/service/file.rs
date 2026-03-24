@@ -3,14 +3,17 @@ use actix_web::http::header::{ContentDisposition, DispositionParam, DispositionT
 use actix_web::web::Data;
 use actix_web::{Error, HttpResponse, Responder, get, post, web};
 use futures_util::StreamExt as _;
-use serde_json::json;
-use uuid::Uuid;
 use std::fs::File;
 use std::io::{Read as _, Write as _};
+use uuid::Uuid;
 
-use crate::models;
-#[post("file")]
-pub async fn post_file(mut payload: Multipart, config: Data<models::AppConfig>) -> Result<HttpResponse, Error> {
+use crate::config;
+#[post("file/{uuid}")]
+pub async fn upload_file(
+    path: web::Path<Uuid>,
+    mut payload: Multipart,
+    config: Data<config::ServerConfig>,
+) -> Result<HttpResponse, Error> {
     println!("\n---upload_file---\n");
 
     while let Some(Ok(mut field)) = payload.next().await {
@@ -18,8 +21,7 @@ pub async fn post_file(mut payload: Multipart, config: Data<models::AppConfig>) 
         let file_name = content_disposition.get_filename().unwrap();
 
         // 获取临时目录路径
-        let mut file_path = config.save_path.clone();
-        file_path.push(file_name);
+        let file_path = config.save_path.join(path.to_string());
         println!(
             "---full file_path:{}, file_name:{}",
             file_path.display(),
@@ -35,9 +37,8 @@ pub async fn post_file(mut payload: Multipart, config: Data<models::AppConfig>) 
     Ok(HttpResponse::Ok().finish())
 }
 
-
 #[get("file/{uuid}")]
-async fn get_file(path: web::Path<Uuid>, config: Data<models::AppConfig>) -> impl Responder {
+async fn download_file(path: web::Path<Uuid>, config: Data<config::ServerConfig>) -> impl Responder {
     let file_path = config.save_path.join(path.to_string());
     let mut file = File::open(&file_path).expect("Can't open file!");
 
@@ -50,7 +51,7 @@ async fn get_file(path: web::Path<Uuid>, config: Data<models::AppConfig>) -> imp
 
     // 得到文件名
     let file_name = file_path.file_name().unwrap().to_str().unwrap();
-    
+
     let cd = ContentDisposition {
         disposition: DispositionType::FormData,
         parameters: vec![
@@ -68,5 +69,5 @@ async fn get_file(path: web::Path<Uuid>, config: Data<models::AppConfig>) -> imp
 #[post("entry")]
 async fn create_entry() -> impl Responder {
     let uuid = Uuid::new_v4();
-    HttpResponse::Ok().json(json!({"uuid": uuid}))
+    HttpResponse::Ok().json(common::models::EntryInfo { uuid })
 }

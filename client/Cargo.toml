@@ -3,6 +3,9 @@ name = "client"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+path = "src/lib.rs"
+
 [dependencies]
 config.workspace = true
 flate2 = { version = "1.1.9", features = ["zlib-rs"] }
@@ -11,3 +14,9 @@ serde.workspace = true
 tokio.workspace = true
 tokio-util = "0.7.18"
 uuid.workspace = true
+common = { path = "../common" }
+url.workspace = true
+
+[dev-dependencies]
+server = { path = "../server" }
+tempfile.workspace = true

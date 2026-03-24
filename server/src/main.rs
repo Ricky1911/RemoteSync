@@ -1,6 +1,5 @@
-mod models;
-mod service;
-use actix_web::{self, App, HttpServer, web::Data};
+use std::net::TcpListener;
+
 use config::{Config, File};
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -9,15 +8,16 @@ async fn main() -> std::io::Result<()> {
         .build()
         .expect("构建配置错误");
 
-    let config: models::AppConfig = config_.try_deserialize().expect("反序列化配置文件错误");
-    let config_data = Data::new(config);
-    HttpServer::new(move || {
-        App::new()
-            .app_data(Data::clone(&config_data))
-            .service(service::post_file)
-            .service(service::get_file)
-    })
-    .bind(("127.0.0.1", 8080))?
-    .run()
-    .await
+    let config: server::ServerConfig = config_.try_deserialize().expect("反序列化配置文件错误");
+    let address = if let Some(address) = config.address {
+        address
+    } else {
+        std::net::SocketAddr::new(
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+            0,
+        )
+    };
+    let listener = TcpListener::bind(address)?;
+    println!("Server started, listening to {}", listener.local_addr()?);
+    server::run(config, listener)?.await
 }
