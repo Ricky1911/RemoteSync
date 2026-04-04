@@ -16,6 +16,7 @@ tokio-util = "0.7.18"
 uuid.workspace = true
 common = { path = "../common" }
 url.workspace = true
+anyhow.workspace = true
 
 [dev-dependencies]
 server = { path = "../server" }

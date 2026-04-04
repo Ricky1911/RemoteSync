@@ -5,7 +5,9 @@ edition = "2024"
 authors.workspace = true
 
 [dependencies]
-rsa = { version = "0.9.10", features = ["serde"] }
+sha2.workspace = true
 serde.workspace = true
-sha2 = "0.10.9"
+rsa.workspace = true
 uuid.workspace = true
+postcard.workspace = true
+anyhow.workspace = true

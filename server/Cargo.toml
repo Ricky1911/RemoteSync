@@ -10,16 +10,27 @@ path = "src/lib.rs"
 actix-multipart = "0.7.2"
 actix-web = "4.13.0"
 config.workspace = true
-diesel = "2.3.7"
-dotenv = "0.15.0"
+diesel = { version = "2.3.7", features = [
+    "chrono",
+    "postgres",
+    "r2d2",
+    "uuid",
+] }
 futures-util = "0.3.32"
 serde.workspace = true
 tokio.workspace = true
 uuid.workspace = true
 serde_json.workspace = true
 common = { path = "../common" }
-actix-jwt-auth-middleware = "0.5.0"
 url.workspace = true
+sha2.workspace = true
+rsa.workspace = true
+dotenv = "0.15.0"
+postcard.workspace = true
+rand = "0.10.0"
+chrono = { version = "0.4.44", features = ["serde"] }
+anyhow.workspace = true
+jsonwebtoken = "10.3.0"
 
 [dev-dependencies]
 client = { path = "../client" }
