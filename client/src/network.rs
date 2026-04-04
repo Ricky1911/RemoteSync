@@ -1,3 +1,3 @@
 mod client;
 
-pub use client::Client;
+pub use client::{Client, create_user};

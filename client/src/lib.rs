@@ -1,5 +1,5 @@
 mod config;
 mod network;
 
-pub use network::Client;
 pub use config::ClientConfig;
+pub use network::{Client, create_user};

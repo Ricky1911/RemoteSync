@@ -22,18 +22,18 @@ pub async fn upload_file(
             while let Some(Ok(mut field)) = payload.next().await {
                 let content_disposition = field.content_disposition().unwrap();
                 let file_name = content_disposition.get_filename().unwrap();
-
-                let file_path = config
-                    .save_path
-                    .join(user_id.to_string())
-                    .join(entry.to_string());
+                let file_dir = config.save_path.join(user_id.to_string());
+                if !file_dir.exists() {
+                    std::fs::create_dir(&file_dir)?;
+                }
+                let file_path = file_dir.join(entry.to_string());
                 println!(
                     "---full file_path:{}, file_name:{}",
                     file_path.display(),
                     file_name
                 );
-
                 let mut file = File::create(file_path)?;
+
                 while let Some(chunk) = field.next().await {
                     let data = chunk?;
                     file.write_all(&data)?;

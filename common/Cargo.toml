@@ -10,4 +10,3 @@ serde.workspace = true
 rsa.workspace = true
 uuid.workspace = true
 postcard.workspace = true
-anyhow.workspace = true

@@ -29,8 +29,9 @@ dotenv = "0.15.0"
 postcard.workspace = true
 rand = "0.10.0"
 chrono = { version = "0.4.44", features = ["serde"] }
-anyhow.workspace = true
-jsonwebtoken = "10.3.0"
+jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
+fake = "5.1.0"
+reqwest.workspace = true
 
 [dev-dependencies]
 client = { path = "../client" }

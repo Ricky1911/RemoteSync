@@ -34,7 +34,7 @@ pub fn verify_signature(public_key: &RsaPublicKey, data: &[u8], signature: &Sign
     verifying_key.verify(data, signature).is_ok()
 }
 
-pub fn public_key_to_bytes(public_key: &RsaPublicKey) -> anyhow::Result<Vec<u8>, postcard::Error> {
+pub fn public_key_to_bytes(public_key: &RsaPublicKey) -> Result<Vec<u8>, postcard::Error> {
     postcard::to_allocvec(public_key)
 }
 
