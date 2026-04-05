@@ -1,3 +1,4 @@
+use common::models::NewUpdate;
 use reqwest::{
     StatusCode,
     header::{self, HeaderMap, HeaderValue},
@@ -13,7 +14,6 @@ use url::Url;
 use uuid::Uuid;
 
 use std::{
-    error::Error,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -44,30 +44,41 @@ impl Client {
         }
     }
 
-    pub async fn upload<T>(&mut self, entry: Uuid, path: T)
+    pub async fn upload<T>(&mut self, entry: Uuid, path: T) -> anyhow::Result<()>
     where
         T: AsRef<Path>,
     {
-        let form = if let Ok(part) = Part::file(path.as_ref()).await {
-            reqwest::multipart::Form::new().part("file", part)
-        } else {
-            dbg!(path.as_ref());
-            panic!()
+        let signature = common::crypto::sign_file(&self.private_key, &path).await?;
+        let update_info = NewUpdate {
+            aes_key: Vec::new(),
+            signature,
         };
+        let metadata_part = Part::bytes(postcard::to_allocvec(&update_info)?);
+        let file_part = Part::file(path.as_ref()).await?;
+        let form = reqwest::multipart::Form::new()
+            .part("metadata", metadata_part)
+            .part("file", file_part);
         let url = self
             .api_url
             .join(&format!("file/{}", &entry.to_string()))
             .unwrap();
-        let response = self.client.post(url).multipart(form).send().await.unwrap();
-        println!("{:?}", response.text().await);
+        let response = self.client.post(url).multipart(form).send().await?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(anyhow::Error::msg("Unexpected response"))
+        }
     }
 
-    pub async fn download<T>(&mut self, entry: Uuid, save_dir: T) -> Result<PathBuf, Box<dyn Error>>
+    pub async fn download<T>(&mut self, entry: Uuid, save_dir: T) -> anyhow::Result<PathBuf>
     where
         T: AsRef<Path>,
     {
         if !save_dir.as_ref().is_dir() {
-            panic!("not a directory")
+            return Err(anyhow::Error::msg(format!(
+                "{:?} is not a directory",
+                save_dir.as_ref()
+            )));
         }
         let url = self
             .api_url
@@ -76,14 +87,12 @@ impl Client {
         let response = self.client.get(url).send().await?;
         let fname = entry.to_string();
         let path = save_dir.as_ref().join(&fname);
-        println!("file to download: '{}'", fname);
-        println!("will be located under: '{:?}'", path);
         let mut dest = std::fs::File::create(&path)?;
         dest.write(&response.bytes().await.unwrap())?;
         Ok(path)
     }
 
-    pub async fn create_entry(&mut self) -> Result<Uuid, Box<dyn Error>> {
+    pub async fn create_entry(&mut self) -> anyhow::Result<Uuid> {
         let response = self
             .client
             .post(self.api_url.join("entry").unwrap())
@@ -101,7 +110,7 @@ impl Client {
         username: String,
         password: String,
         api_url: &Url,
-    ) -> Result<reqwest::Client, Box<dyn Error>> {
+    ) -> anyhow::Result<reqwest::Client> {
         let response = reqwest::Client::new()
             .post(api_url.join("login")?)
             .json(&common::models::LoginRequest {
@@ -128,7 +137,7 @@ pub async fn create_user(
     api_url: Url,
     public_pem: PathBuf,
     private_pem: PathBuf,
-) -> Result<(), Box<dyn Error>> {
+) -> anyhow::Result<()> {
     let (private_key, public_key) =
         common::crypto::generate_keys().expect("Failed to generate RSA Keys");
     let client = reqwest::Client::new();

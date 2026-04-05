@@ -10,3 +10,5 @@ serde.workspace = true
 rsa.workspace = true
 uuid.workspace = true
 postcard.workspace = true
+tokio.workspace = true
+thiserror = "2.0.18"

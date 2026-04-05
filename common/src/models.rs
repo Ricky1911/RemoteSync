@@ -24,3 +24,9 @@ pub struct LoginRequest {
 pub struct TokenResponse {
     pub token: String,
 }
+
+#[derive(Deserialize, Serialize)]
+pub struct NewUpdate {
+    pub aes_key: Vec<u8>,
+    pub signature: Vec<u8>,
+}
