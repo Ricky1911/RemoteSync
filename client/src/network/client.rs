@@ -1,4 +1,5 @@
-use common::models::NewUpdate;
+use base64::{Engine, prelude::BASE64_STANDARD};
+use common::{crypto::verify_signature, models::NewUpdate};
 use reqwest::{
     StatusCode,
     header::{self, HeaderMap, HeaderValue},
@@ -10,6 +11,7 @@ use rsa::{
         DecodePrivateKey, DecodePublicKey, EncodePrivateKey as _, EncodePublicKey, LineEnding,
     },
 };
+use sha2::Digest;
 use url::Url;
 use uuid::Uuid;
 
@@ -84,12 +86,34 @@ impl Client {
             .api_url
             .join(&format!("file/{}", &entry.to_string()))
             .unwrap();
-        let response = self.client.get(url).send().await?;
-        let fname = entry.to_string();
-        let path = save_dir.as_ref().join(&fname);
-        let mut dest = std::fs::File::create(&path)?;
-        dest.write(&response.bytes().await.unwrap())?;
-        Ok(path)
+        let mut response = self.client.get(url).send().await?;
+        if let Some(signature) = response.headers().get("x-file-signature")
+            && let Some(key) = response.headers().get("x-file-key")
+            && let Ok(signature) = BASE64_STANDARD.decode(signature)
+            && let Ok(key) = BASE64_STANDARD.decode(key)
+        {
+            let fname = entry.to_string();
+            let path = save_dir.as_ref().join(&fname);
+            let mut dest = std::fs::File::create(&path)?;
+            let file_cleanup = common::file_cleanup::FileCleanup::new(path.clone());
+            let mut hasher = sha2::Sha256::new();
+            while let Some(chunk) = response.chunk().await? {
+                dest.write(&chunk)?;
+                hasher.update(chunk);
+            }
+            let hash = hasher.finalize().to_vec();
+            let verified = verify_signature(&self.public_key, &hash, &signature)?;
+            if verified {
+                file_cleanup.commit();
+                Ok(path)
+            } else {
+                Err(anyhow::Error::msg("Signature error"))
+            }
+        } else {
+            Err(anyhow::Error::msg(
+                "Invalid response without key or signature",
+            ))
+        }
     }
 
     pub async fn create_entry(&mut self) -> anyhow::Result<Uuid> {
@@ -115,7 +139,7 @@ impl Client {
             .post(api_url.join("login")?)
             .json(&common::models::LoginRequest {
                 name: username,
-                password: password,
+                password,
             })
             .send()
             .await?;
@@ -146,7 +170,7 @@ pub async fn create_user(
         .post(api_url.join("user").unwrap())
         .json(&common::models::NewUser {
             name: username,
-            password: password,
+            password,
             public_key: public_key.clone(),
         })
         .send()

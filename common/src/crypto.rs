@@ -103,7 +103,7 @@ where
     T: AsRef<Path>,
 {
     let hash = stream_hash(path).await?;
-    Ok(verify_signature(public_key, &hash, signature)?)
+    verify_signature(public_key, &hash, signature)
 }
 
 #[cfg(test)]
