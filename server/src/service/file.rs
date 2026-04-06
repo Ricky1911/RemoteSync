@@ -12,7 +12,7 @@ use diesel::{
 };
 use futures_util::StreamExt as _;
 use sha2::Digest;
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncWriteExt as _, BufWriter};
 use uuid::Uuid;
 
 use crate::service::user::User;
@@ -125,7 +125,7 @@ async fn upload_file(
 
         let update_uuid = Uuid::new_v4();
         let file_path = file_dir.join(update_uuid.to_string());
-        let mut file = tokio::fs::File::create(&file_path).await?;
+        let mut file = BufWriter::new(tokio::fs::File::create(&file_path).await?);
         let cleanup_guard = FileCleanup::new(file_path.clone());
         let mut hasher = sha2::Sha256::new();
 
@@ -134,6 +134,7 @@ async fn upload_file(
             file.write_all(&data).await?;
             hasher.update(data);
         }
+        file.flush().await?;
 
         let hash = hasher.finalize().to_vec();
         if let Ok(result) = common::crypto::verify_signature(&public_key, &hash, &signature)

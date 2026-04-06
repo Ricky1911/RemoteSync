@@ -12,13 +12,11 @@ use rsa::{
     },
 };
 use sha2::Digest;
+use tokio::io::{AsyncWriteExt, BufWriter};
 use url::Url;
 use uuid::Uuid;
 
-use std::{
-    io::Write,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use crate::config::ClientConfig;
 
@@ -94,13 +92,14 @@ impl Client {
         {
             let fname = entry.to_string();
             let path = save_dir.as_ref().join(&fname);
-            let mut dest = std::fs::File::create(&path)?;
+            let mut file = BufWriter::new(tokio::fs::File::create(&path).await?);
             let file_cleanup = common::file_cleanup::FileCleanup::new(path.clone());
             let mut hasher = sha2::Sha256::new();
             while let Some(chunk) = response.chunk().await? {
-                dest.write_all(&chunk)?;
+                file.write_all(&chunk).await?;
                 hasher.update(chunk);
             }
+            file.flush().await?;
             let hash = hasher.finalize().to_vec();
             let verified = verify_signature(&self.public_key, &hash, &signature)?;
             if verified {
