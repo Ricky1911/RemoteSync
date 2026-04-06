@@ -98,7 +98,7 @@ impl Client {
             let file_cleanup = common::file_cleanup::FileCleanup::new(path.clone());
             let mut hasher = sha2::Sha256::new();
             while let Some(chunk) = response.chunk().await? {
-                dest.write(&chunk)?;
+                dest.write_all(&chunk)?;
                 hasher.update(chunk);
             }
             let hash = hasher.finalize().to_vec();
