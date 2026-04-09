@@ -12,3 +12,4 @@ uuid.workspace = true
 postcard.workspace = true
 tokio.workspace = true
 thiserror = "2.0.18"
+aes-gcm = "0.10.3"

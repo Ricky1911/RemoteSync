@@ -1,12 +1,16 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use aes_gcm::{AeadCore as _, Aes256Gcm, KeyInit, aead::Aead as _};
+use aes_gcm::{Key, Nonce};
 use rsa::pkcs1v15::{Signature, SigningKey, VerifyingKey};
 use rsa::rand_core::OsRng;
-use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier as _};
+use rsa::signature::{RandomizedSigner as _, SignatureEncoding as _, Verifier as _};
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
-use sha2::{Digest, Sha256};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use thiserror::Error;
-use tokio::io::AsyncReadExt;
+use tokio::io::AsyncReadExt as _;
+use tokio::io::AsyncWriteExt as _;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -14,9 +18,9 @@ pub enum Error {
     IoError(#[from] std::io::Error),
     #[error("Failed to generate key")]
     KeyGenerateError,
-    #[error("Failed to encrypt key")]
+    #[error("Failed to encrypt")]
     EncryptError,
-    #[error("Failed to decrypt key")]
+    #[error("Failed to decrypt")]
     DecryptError,
     #[error("Failed to serialzie")]
     SerializeError,
@@ -104,6 +108,76 @@ where
 {
     let hash = stream_hash(path).await?;
     verify_signature(public_key, &hash, signature)
+}
+
+pub struct EncryptInfo {
+    pub key: AesKey,
+    pub path: PathBuf,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AesKey {
+    pub key: Vec<u8>,
+    pub nonce: Vec<u8>,
+}
+
+pub async fn aes_encrypt_file<T>(path: T) -> Result<EncryptInfo, Error>
+where
+    T: AsRef<Path>,
+{
+    let key = Aes256Gcm::generate_key(OsRng);
+    let nonce = Aes256Gcm::generate_nonce(OsRng);
+    let cipher = Aes256Gcm::new(&key);
+    let out_path = path.as_ref().with_added_extension("enc");
+
+    let mut in_file = tokio::io::BufReader::new(tokio::fs::File::open(path).await?);
+    let mut out_file = tokio::io::BufWriter::new(tokio::fs::File::create(&out_path).await?);
+
+    let mut buffer = [0u8; 64 * 1024];
+
+    while let Ok(n) = in_file.read(&mut buffer).await
+        && n > 0
+    {
+        let encrypted = cipher
+            .encrypt(&nonce, buffer.as_ref())
+            .map_err(|_| Error::EncryptError)?;
+        out_file.write_all(&encrypted).await?
+    }
+    out_file.flush().await?;
+
+    Ok(EncryptInfo {
+        key: AesKey {
+            key: key.to_vec(),
+            nonce: nonce.to_vec(),
+        },
+        path: out_path,
+    })
+}
+
+pub async fn aes_decrypt_file<T>(path: T, aes_key: &AesKey) -> Result<PathBuf, Error>
+where
+    T: AsRef<Path>,
+{
+    let key = Key::<Aes256Gcm>::from_slice(&aes_key.key);
+    let nonce = Nonce::from_slice(&aes_key.nonce);
+    let cipher = Aes256Gcm::new(&key);
+    let out_path = path.as_ref().with_added_extension("dec");
+    let mut in_file = tokio::io::BufReader::new(tokio::fs::File::open(path).await?);
+    let mut out_file = tokio::io::BufWriter::new(tokio::fs::File::create(&out_path).await?);
+
+    let mut buffer = [0u8; 64 * 1024];
+
+    while let Ok(n) = in_file.read(&mut buffer).await
+        && n > 0
+    {
+        let decrypted = cipher
+            .decrypt(nonce, buffer.as_ref())
+            .map_err(|_| Error::EncryptError)?;
+        out_file.write_all(&decrypted).await?
+    }
+    out_file.flush().await?;
+
+    Ok(out_path)
 }
 
 #[cfg(test)]
