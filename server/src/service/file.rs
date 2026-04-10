@@ -88,7 +88,6 @@ async fn upload_file(
     if !file_dir.exists() {
         std::fs::create_dir_all(&file_dir)?;
     }
-
     let NewUpdate { aes_key, signature } =
         if let Some(Ok(mut metadata_field)) = payload.next().await {
             if !metadata_field
@@ -111,7 +110,6 @@ async fn upload_file(
         } else {
             return Ok(HttpResponse::BadRequest().body("Invalid multipart form"));
         };
-
     if let Some(Ok(mut file_field)) = payload.next().await {
         if !file_field
             .content_disposition()

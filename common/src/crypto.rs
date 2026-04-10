@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use aes_gcm::{AeadCore as _, Aes256Gcm, KeyInit, aead::Aead as _};
-use aes_gcm::{Key, Nonce};
+use aes_gcm::Aes256Gcm;
+use aes_gcm::aead::stream::{DecryptorBE32, EncryptorBE32};
 use rsa::pkcs1v15::{Signature, SigningKey, VerifyingKey};
-use rsa::rand_core::OsRng;
+use rsa::rand_core::{OsRng, RngCore};
 use rsa::signature::{RandomizedSigner as _, SignatureEncoding as _, Verifier as _};
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
@@ -28,21 +28,24 @@ pub enum Error {
     DeserializeError,
 }
 
-pub fn generate_keys() -> Result<(RsaPrivateKey, RsaPublicKey), Error> {
+pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), Error> {
     let mut rng = OsRng;
     let private_key = RsaPrivateKey::new(&mut rng, 2048).map_err(|_| Error::KeyGenerateError)?;
     let public_key = RsaPublicKey::from(&private_key);
     Ok((private_key, public_key))
 }
 
-pub fn encrypt_data(public_key: &RsaPublicKey, data: &[u8]) -> Result<Vec<u8>, Error> {
+pub fn rsa_encrypt_data(public_key: &RsaPublicKey, data: &[u8]) -> Result<Vec<u8>, Error> {
     let mut rng = OsRng;
     public_key
         .encrypt(&mut rng, Pkcs1v15Encrypt, data)
         .map_err(|_| Error::EncryptError)
 }
 
-pub fn decrypt_data(private_key: &RsaPrivateKey, encrypted_data: &[u8]) -> Result<Vec<u8>, Error> {
+pub fn rsa_decrypt_data(
+    private_key: &RsaPrivateKey,
+    encrypted_data: &[u8],
+) -> Result<Vec<u8>, Error> {
     private_key
         .decrypt(Pkcs1v15Encrypt, encrypted_data)
         .map_err(|_| Error::DecryptError)
@@ -110,96 +113,136 @@ where
     verify_signature(public_key, &hash, signature)
 }
 
-pub struct EncryptInfo {
-    pub key: AesKey,
-    pub path: PathBuf,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct AesKey {
-    pub key: Vec<u8>,
-    pub nonce: Vec<u8>,
+    pub key: [u8; 32],
+    pub nonce: [u8; 7],
 }
 
-pub async fn aes_encrypt_file<T>(path: T) -> Result<EncryptInfo, Error>
+pub fn generate_aes_keys() -> AesKey {
+    let mut key: [u8; 32] = [0; 32];
+    let mut nonce: [u8; 7] = [0; 7];
+    OsRng.fill_bytes(&mut key);
+    OsRng.fill_bytes(&mut nonce);
+    AesKey {
+        key: key,
+        nonce: nonce,
+    }
+}
+
+const CHUNCK_SIZE: usize = 64 * 1024;
+
+pub async fn aes_encrypt_file<T>(path: T, key: &AesKey) -> Result<PathBuf, Error>
 where
     T: AsRef<Path>,
 {
-    let key = Aes256Gcm::generate_key(OsRng);
-    let nonce = Aes256Gcm::generate_nonce(OsRng);
-    let cipher = Aes256Gcm::new(&key);
+    let mut encryptor = EncryptorBE32::<Aes256Gcm>::new(&key.key.into(), &key.nonce.into());
     let out_path = path.as_ref().with_added_extension("enc");
-
-    let mut in_file = tokio::io::BufReader::new(tokio::fs::File::open(path).await?);
+    let in_file = tokio::fs::File::open(path).await?;
+    let file_length = in_file.metadata().await?.len();
+    let chunck_count = if file_length % CHUNCK_SIZE as u64 == 0 {
+        file_length / CHUNCK_SIZE as u64
+    } else {
+        file_length / CHUNCK_SIZE as u64 + 1
+    };
+    let mut in_file = tokio::io::BufReader::new(in_file);
     let mut out_file = tokio::io::BufWriter::new(tokio::fs::File::create(&out_path).await?);
 
-    let mut buffer = [0u8; 64 * 1024];
-
-    while let Ok(n) = in_file.read(&mut buffer).await
-        && n > 0
-    {
-        let encrypted = cipher
-            .encrypt(&nonce, buffer.as_ref())
+    let mut buffer = Vec::with_capacity(CHUNCK_SIZE + 16);
+    for _ in 0..chunck_count - 1 {
+        buffer.resize(CHUNCK_SIZE, 0);
+        in_file.read_exact(&mut buffer).await?;
+        encryptor
+            .encrypt_next_in_place(&[], &mut buffer)
             .map_err(|_| Error::EncryptError)?;
-        out_file.write_all(&encrypted).await?
+        out_file.write_all(&buffer).await?;
     }
+    buffer.truncate(0);
+    in_file.read_to_end(&mut buffer).await?;
+    encryptor
+        .encrypt_last_in_place(&[], &mut buffer)
+        .map_err(|_| Error::EncryptError)?;
+    out_file.write_all(&buffer).await?;
     out_file.flush().await?;
-
-    Ok(EncryptInfo {
-        key: AesKey {
-            key: key.to_vec(),
-            nonce: nonce.to_vec(),
-        },
-        path: out_path,
-    })
+    Ok(out_path)
 }
 
-pub async fn aes_decrypt_file<T>(path: T, aes_key: &AesKey) -> Result<PathBuf, Error>
+pub async fn aes_decrypt_file<T>(path: T, key: &AesKey) -> Result<PathBuf, Error>
 where
     T: AsRef<Path>,
 {
-    let key = Key::<Aes256Gcm>::from_slice(&aes_key.key);
-    let nonce = Nonce::from_slice(&aes_key.nonce);
-    let cipher = Aes256Gcm::new(&key);
+    let mut decryptor = DecryptorBE32::<Aes256Gcm>::new(&key.key.into(), &key.nonce.into());
     let out_path = path.as_ref().with_added_extension("dec");
-    let mut in_file = tokio::io::BufReader::new(tokio::fs::File::open(path).await?);
+    let in_file = tokio::fs::File::open(path).await?;
+    let file_length = in_file.metadata().await?.len();
+    let chunck_count = if file_length % (CHUNCK_SIZE + 16) as u64 == 0 {
+        file_length / (CHUNCK_SIZE + 16) as u64
+    } else {
+        file_length / (CHUNCK_SIZE + 16) as u64 + 1
+    };
+    let mut in_file = tokio::io::BufReader::new(in_file);
     let mut out_file = tokio::io::BufWriter::new(tokio::fs::File::create(&out_path).await?);
 
-    let mut buffer = [0u8; 64 * 1024];
-
-    while let Ok(n) = in_file.read(&mut buffer).await
-        && n > 0
-    {
-        let decrypted = cipher
-            .decrypt(nonce, buffer.as_ref())
-            .map_err(|_| Error::EncryptError)?;
-        out_file.write_all(&decrypted).await?
+    let mut buffer = Vec::with_capacity(CHUNCK_SIZE + 16);
+    for _ in 0..chunck_count - 1 {
+        buffer.resize(CHUNCK_SIZE + 16, 0);
+        in_file.read_exact(&mut buffer).await?;
+        decryptor
+            .decrypt_next_in_place(&[], &mut buffer)
+            .map_err(|_| Error::DecryptError)?;
+        out_file.write_all(&buffer).await?;
     }
+    buffer.truncate(0);
+    in_file.read_to_end(&mut buffer).await?;
+    decryptor
+        .decrypt_last_in_place(&[], &mut buffer)
+        .map_err(|_| Error::DecryptError)?;
+    out_file.write_all(&buffer).await?;
     out_file.flush().await?;
-
     Ok(out_path)
 }
 
 #[cfg(test)]
 mod test {
+    use std::io::{Read, Write};
+
     use super::*;
     #[test]
-    fn test_encrypt_and_decrypt() {
-        let (private_key, public_key) = generate_keys().unwrap();
+    fn test_rsa_encrypt_and_decrypt() {
+        let (private_key, public_key) = generate_rsa_keys().unwrap();
         let data = b"Hello, RSA in Rust!";
-        let encrypted_data = encrypt_data(&public_key, data).unwrap();
-        dbg!("Encrypted Data: {:?}", &encrypted_data);
-        let decrypted_data = decrypt_data(&private_key, &encrypted_data);
+        let encrypted_data = rsa_encrypt_data(&public_key, data).unwrap();
+        let decrypted_data = rsa_decrypt_data(&private_key, &encrypted_data);
         assert!(decrypted_data.unwrap() == data)
     }
 
     #[test]
     fn test_sign_and_verify() {
-        let (private_key, public_key) = generate_keys().unwrap();
+        let (private_key, public_key) = generate_rsa_keys().unwrap();
         let data = b"Hello, RSA in Rust!";
         let signature = sign_data(&private_key, data);
-        dbg!("Signature: {:?}", &signature);
         let is_valid = verify_signature(&public_key, data, &signature);
         assert!(is_valid.unwrap())
+    }
+
+    #[tokio::test]
+    async fn test_aes_encrypt_and_decrypt() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let tmp_file_path = tmp_dir.path().join("test");
+        let mut tmp_file = std::fs::File::create(&tmp_file_path).unwrap();
+        let data: Vec<u8> = std::iter::repeat_with(|| 0u8)
+            .take(CHUNCK_SIZE * 2)
+            .collect();
+        tmp_file.write_all(&data).unwrap();
+        let aes_key = generate_aes_keys();
+        let enc_path = aes_encrypt_file(&tmp_file_path, &aes_key).await.unwrap();
+        let dec_path = aes_decrypt_file(enc_path, &aes_key).await.unwrap();
+        let mut dec_data = Vec::new();
+        std::fs::File::open(dec_path)
+            .unwrap()
+            .read_to_end(&mut dec_data)
+            .unwrap();
+        assert_eq!(data, dec_data);
+        tmp_dir.close().unwrap();
     }
 }

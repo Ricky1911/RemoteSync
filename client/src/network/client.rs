@@ -48,13 +48,14 @@ impl Client {
     where
         T: AsRef<Path>,
     {
-        let signature = common::crypto::sign_file(&self.private_key, &path).await?;
-        let update_info = NewUpdate {
-            aes_key: Vec::new(),
-            signature,
-        };
+        let aes_key = common::crypto::generate_aes_keys();
+        let enc_path = common::crypto::aes_encrypt_file(&path, &aes_key).await?;
+        let aes_key =
+            common::crypto::rsa_encrypt_data(&self.public_key, &postcard::to_allocvec(&aes_key)?)?;
+        let signature = common::crypto::sign_file(&self.private_key, &enc_path).await?;
+        let update_info = NewUpdate { aes_key, signature };
         let metadata_part = Part::bytes(postcard::to_allocvec(&update_info)?);
-        let file_part = Part::file(path.as_ref()).await?;
+        let file_part = Part::file(enc_path).await?;
         let form = reqwest::multipart::Form::new()
             .part("metadata", metadata_part)
             .part("file", file_part);
@@ -90,10 +91,12 @@ impl Client {
             && let Ok(signature) = BASE64_STANDARD.decode(signature)
             && let Ok(key) = BASE64_STANDARD.decode(key)
         {
+            let aes_key: common::crypto::AesKey =
+                postcard::from_bytes(&common::crypto::rsa_decrypt_data(&self.private_key, &key)?)?;
             let fname = entry.to_string();
             let path = save_dir.as_ref().join(&fname);
             let mut file = BufWriter::new(tokio::fs::File::create(&path).await?);
-            let file_cleanup = common::file_cleanup::FileCleanup::new(path.clone());
+            let _file_cleanup = common::file_cleanup::FileCleanup::new(path.clone());
             let mut hasher = sha2::Sha256::new();
             while let Some(chunk) = response.chunk().await? {
                 file.write_all(&chunk).await?;
@@ -103,8 +106,8 @@ impl Client {
             let hash = hasher.finalize().to_vec();
             let verified = verify_signature(&self.public_key, &hash, &signature)?;
             if verified {
-                file_cleanup.commit();
-                Ok(path)
+                let dec_path = common::crypto::aes_decrypt_file(&path, &aes_key).await?;
+                Ok(dec_path)
             } else {
                 Err(anyhow::Error::msg("Signature error"))
             }
@@ -162,7 +165,7 @@ pub async fn create_user(
     private_pem: PathBuf,
 ) -> anyhow::Result<()> {
     let (private_key, public_key) =
-        common::crypto::generate_keys().expect("Failed to generate RSA Keys");
+        common::crypto::generate_rsa_keys().expect("Failed to generate RSA Keys");
     let client = reqwest::Client::new();
 
     let response = client
