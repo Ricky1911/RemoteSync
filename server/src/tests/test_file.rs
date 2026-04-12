@@ -12,7 +12,7 @@ async fn test_sync() {
     let password: String = Faker.fake();
     let public_pem: PathBuf = temp_save_dir.path().join(Uuid::new_v4().to_string());
     let private_pem: PathBuf = temp_save_dir.path().join(Uuid::new_v4().to_string());
-    client::create_user(
+    client::network::create_user(
         username.clone(),
         password.clone(),
         url.clone(),
@@ -21,14 +21,14 @@ async fn test_sync() {
     )
     .await
     .unwrap();
-    let config = client::ClientConfig {
+    let config = client::config::ClientConfig {
         api_url: url,
         username,
         password,
         public_pem,
         private_pem,
     };
-    let mut client = client::Client::init(config).await;
+    let mut client = client::network::Client::init(config).await;
     let entry_result = client.create_entry().await;
     let uuid = entry_result.unwrap();
 

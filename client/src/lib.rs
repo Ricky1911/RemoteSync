@@ -1,5 +1,3 @@
-mod config;
-mod network;
-
-pub use config::ClientConfig;
-pub use network::{Client, create_user};
+pub mod compress;
+pub mod config;
+pub mod network;

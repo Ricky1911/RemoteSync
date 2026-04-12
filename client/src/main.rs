@@ -8,8 +8,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .build()
         .expect("构建配置错误");
 
-    let config: client::ClientConfig = config_.try_deserialize().expect("反序列化配置文件错误");
-    let mut client = client::Client::init(config).await;
+    let config: client::config::ClientConfig =
+        config_.try_deserialize().expect("反序列化配置文件错误");
+    let mut client = client::network::Client::init(config).await;
     client.create_entry().await?;
     Ok(())
 }
