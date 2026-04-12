@@ -5,12 +5,13 @@ use actix_web::web::Data;
 use actix_web::{Error, HttpMessage, HttpRequest, HttpResponse, Responder, get, post, web};
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
-use common::models::NewUpdate;
+use common::models::{NewUpdate, UpdateInfo};
 use diesel::{
     BoolExpressionMethods as _, ExpressionMethods, Insertable, QueryDsl, Queryable, RunQueryDsl,
     insert_into,
 };
 use futures_util::StreamExt as _;
+use serde::Deserialize;
 use sha2::Digest;
 use tokio::io::{AsyncWriteExt as _, BufWriter};
 use uuid::Uuid;
@@ -46,6 +47,17 @@ impl Update {
             created: chrono::Local::now().naive_local(),
             aes_key,
             sig,
+        }
+    }
+}
+
+impl Into<UpdateInfo> for Update {
+    fn into(self) -> UpdateInfo {
+        UpdateInfo {
+            id: self.id,
+            created: self.created,
+            aes_key: self.aes_key,
+            signature: self.sig,
         }
     }
 }
@@ -242,6 +254,72 @@ async fn create_entry(db_pool: Data<DbPool>, req: HttpRequest) -> impl Responder
         {
             Ok(_) => HttpResponse::Ok().json(common::models::EntryInfo { uuid }),
             Err(_) => HttpResponse::InternalServerError().body("Database error"),
+        }
+    } else {
+        HttpResponse::InternalServerError().body("Database error")
+    }
+}
+
+#[derive(Deserialize)]
+enum UpdateQueryType {
+    All,
+    Latest,
+}
+
+#[get("entry/{entry_id}/{query_type}")]
+async fn query_update(
+    entry_id: web::Path<Uuid>,
+    query_type: web::Path<UpdateQueryType>,
+    db_pool: Data<DbPool>,
+    req: HttpRequest,
+) -> impl Responder {
+    let user_id = if let Some(&user_id) = req.extensions().get::<Uuid>() {
+        user_id
+    } else {
+        return HttpResponse::Unauthorized().body("Invalid authorization token");
+    };
+
+    let verified = check_user_entry(&user_id, &entry_id, &db_pool);
+    if verified.is_err() {
+        return HttpResponse::InternalServerError().body("Database error");
+    }
+    if !verified.unwrap() {
+        return HttpResponse::Unauthorized().body("Invalid entry");
+    }
+
+    use crate::schema::updates::dsl;
+
+    if let Ok(conn) = &mut db_pool.get() {
+        match query_type.into_inner() {
+            UpdateQueryType::All => {
+                if let Ok(updates) = dsl::updates
+                    .filter(dsl::entry_id.eq(entry_id.into_inner()))
+                    .order_by(dsl::created.desc())
+                    .load_iter::<Update, diesel::connection::DefaultLoadingMode>(conn)
+                {
+                    let updates: Vec<UpdateInfo> = updates
+                        .filter_map(|update| match update {
+                            Ok(update) => Some(update.into()),
+                            Err(_) => None,
+                        })
+                        .collect();
+                    HttpResponse::Ok().json(updates)
+                } else {
+                    HttpResponse::InternalServerError().body("Database error")
+                }
+            }
+            UpdateQueryType::Latest => {
+                if let Ok(update) = dsl::updates
+                    .filter(dsl::entry_id.eq(entry_id.into_inner()))
+                    .order_by(dsl::created.desc())
+                    .first::<Update>(conn)
+                {
+                    let update: UpdateInfo = update.into();
+                    HttpResponse::Ok().json(update)
+                } else {
+                    HttpResponse::InternalServerError().body("Database error")
+                }
+            }
         }
     } else {
         HttpResponse::InternalServerError().body("Database error")

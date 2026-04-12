@@ -14,6 +14,8 @@ use diesel::{
 use dotenv::dotenv;
 use std::net::TcpListener;
 
+use crate::service::query_update;
+
 type DbPool = Pool<ConnectionManager<PgConnection>>;
 
 fn build_dp_pool(database_url: &str) -> DbPool {
@@ -38,6 +40,7 @@ pub fn run(config: ServerConfig, listener: TcpListener) -> Result<Server, std::i
             .service(service::upload_file)
             .service(service::download_file)
             .service(service::create_entry)
+            .service(query_update)
     })
     .listen(listener)?
     .run();
