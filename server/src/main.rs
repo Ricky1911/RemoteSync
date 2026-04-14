@@ -6,9 +6,9 @@ async fn main() -> std::io::Result<()> {
     let config_ = Config::builder()
         .add_source(File::with_name("config.toml"))
         .build()
-        .expect("构建配置错误");
+        .expect("Error on building config");
 
-    let config: server::ServerConfig = config_.try_deserialize().expect("反序列化配置文件错误");
+    let config: server::ServerConfig = config_.try_deserialize().expect("Error on deserializing config file");
     let address = if let Some(address) = config.address {
         address
     } else {

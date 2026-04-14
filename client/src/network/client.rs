@@ -48,8 +48,8 @@ impl Client {
     where
         T: AsRef<Path>,
     {
-        let aes_key = common::crypto::generate_aes_keys();
-        let enc_path = common::crypto::aes_encrypt_file(&path, &aes_key).await?;
+        let aes_key = crate::file::crypto::generate_aes_keys();
+        let enc_path = crate::file::crypto::aes_encrypt_file(&path, &aes_key).await?;
         let aes_key =
             common::crypto::rsa_encrypt_data(&self.public_key, &postcard::to_allocvec(&aes_key)?)?;
         let signature = common::crypto::sign_file(&self.private_key, &enc_path).await?;
@@ -91,7 +91,7 @@ impl Client {
             && let Ok(signature) = BASE64_STANDARD.decode(signature)
             && let Ok(key) = BASE64_STANDARD.decode(key)
         {
-            let aes_key: common::crypto::AesKey =
+            let aes_key: crate::file::crypto::AesKey =
                 postcard::from_bytes(&common::crypto::rsa_decrypt_data(&self.private_key, &key)?)?;
             let fname = entry.to_string();
             let path = save_dir.as_ref().join(&fname);
@@ -106,7 +106,7 @@ impl Client {
             let hash = hasher.finalize().to_vec();
             let verified = verify_signature(&self.public_key, &hash, &signature)?;
             if verified {
-                let dec_path = common::crypto::aes_decrypt_file(&path, &aes_key).await?;
+                let dec_path = crate::file::crypto::aes_decrypt_file(&path, &aes_key).await?;
                 Ok(dec_path)
             } else {
                 Err(anyhow::Error::msg("Signature error"))

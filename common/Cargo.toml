@@ -12,7 +12,6 @@ uuid.workspace = true
 postcard.workspace = true
 tokio.workspace = true
 thiserror = "2.0.18"
-aes-gcm = { version = "0.10.3", features = ["stream"] }
 chrono.workspace = true
 
 [dev-dependencies]
