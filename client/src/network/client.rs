@@ -64,10 +64,10 @@ impl Client {
             .join(&format!("file/{}", &entry.to_string()))
             .unwrap();
         let response = self.client.post(url).multipart(form).send().await?;
-        if response.status().is_success() {
+        if response.status() == StatusCode::OK {
             Ok(())
         } else {
-            Err(anyhow::Error::msg("Unexpected response"))
+            Err(anyhow::Error::msg(format!("Error response: {:?}", response)))
         }
     }
 
@@ -86,6 +86,9 @@ impl Client {
             .join(&format!("file/{}", &entry.to_string()))
             .unwrap();
         let mut response = self.client.get(url).send().await?;
+        if response.status() != StatusCode::OK {
+            return Err(anyhow::Error::msg(format!("Error response: {:?}", response)))
+        }
         if let Some(signature) = response.headers().get("x-file-signature")
             && let Some(key) = response.headers().get("x-file-key")
             && let Ok(signature) = BASE64_STANDARD.decode(signature)
@@ -161,8 +164,8 @@ pub async fn create_user(
     username: String,
     password: String,
     api_url: Url,
-    public_pem: PathBuf,
-    private_pem: PathBuf,
+    public_pem: &Path,
+    private_pem: &Path,
 ) -> anyhow::Result<()> {
     let (private_key, public_key) =
         common::crypto::generate_rsa_keys().expect("Failed to generate RSA Keys");

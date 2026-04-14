@@ -16,8 +16,8 @@ async fn test_sync() {
         username.clone(),
         password.clone(),
         url.clone(),
-        public_pem.clone(),
-        private_pem.clone(),
+        public_pem.as_path(),
+        private_pem.as_path(),
     )
     .await
     .unwrap();

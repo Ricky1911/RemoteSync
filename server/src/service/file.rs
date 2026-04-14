@@ -56,8 +56,6 @@ impl Into<UpdateInfo> for Update {
         UpdateInfo {
             id: self.id,
             created: self.created,
-            aes_key: self.aes_key,
-            signature: self.sig,
         }
     }
 }
@@ -168,9 +166,15 @@ async fn upload_file(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[derive(Deserialize)]
+struct UpdateQuery {
+    id: Option<Uuid>
+}
+
 #[get("file/{entry}")]
 async fn download_file(
-    entry: web::Path<Uuid>,
+    entry_id: web::Path<Uuid>,
+    update_id: web::Query<UpdateQuery>,
     config: Data<config::ServerConfig>,
     db_pool: Data<DbPool>,
     req: HttpRequest,
@@ -181,22 +185,29 @@ async fn download_file(
         return Ok(HttpResponse::Unauthorized().body("Invalid authorization token"));
     };
 
-    let verified = check_user_entry(&user_id, &entry, &db_pool);
+    let verified = check_user_entry(&user_id, &entry_id, &db_pool);
     if verified.is_err() {
         return Ok(HttpResponse::InternalServerError().body("Database error"));
     }
     if !verified.unwrap() {
         return Ok(HttpResponse::Unauthorized().body("Invalid entry"));
     }
-    use crate::schema::updates::dsl::*;
+
     let update = if let Ok(conn) = &mut db_pool.get() {
-        match updates
-            .filter(entry_id.eq(*entry))
-            .order_by(created.desc())
+        use crate::schema::updates::dsl;
+        let mut boxed_query = dsl::updates
+            .filter(dsl::entry_id.eq(*entry_id))
+            .into_boxed();
+        if let Some(update_id) = update_id.id {
+            boxed_query = boxed_query.filter(dsl::id.eq(update_id));
+        }
+
+        match boxed_query
+            .order_by(dsl::created.desc())
             .first::<Update>(conn)
         {
             Ok(update) => update,
-            Err(_) => return Ok(HttpResponse::NotFound().body("Empty entry")),
+            Err(_) => return Ok(HttpResponse::NotFound().body("Update not found")),
         }
     } else {
         return Ok(HttpResponse::InternalServerError().body("Database error"));
@@ -205,7 +216,7 @@ async fn download_file(
     let file_path = config
         .save_path
         .join(user_id.to_string())
-        .join(entry.to_string())
+        .join(entry_id.to_string())
         .join(update.id.to_string());
 
     let file = match NamedFile::open_async(&file_path).await {
@@ -290,10 +301,10 @@ async fn query_update(
     use crate::schema::updates::dsl;
 
     if let Ok(conn) = &mut db_pool.get() {
-        match query_type.into_inner() {
+        match *query_type {
             UpdateQueryType::All => {
                 if let Ok(updates) = dsl::updates
-                    .filter(dsl::entry_id.eq(entry_id.into_inner()))
+                    .filter(dsl::entry_id.eq(*entry_id))
                     .order_by(dsl::created.desc())
                     .load_iter::<Update, diesel::connection::DefaultLoadingMode>(conn)
                 {
@@ -310,7 +321,7 @@ async fn query_update(
             }
             UpdateQueryType::Latest => {
                 if let Ok(update) = dsl::updates
-                    .filter(dsl::entry_id.eq(entry_id.into_inner()))
+                    .filter(dsl::entry_id.eq(*entry_id))
                     .order_by(dsl::created.desc())
                     .first::<Update>(conn)
                 {

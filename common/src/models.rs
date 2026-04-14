@@ -34,7 +34,5 @@ pub struct NewUpdate {
 #[derive(Deserialize, Serialize)]
 pub struct UpdateInfo {
     pub id: Uuid,
-    pub created: chrono::NaiveDateTime,
-    pub aes_key: Vec<u8>,
-    pub signature: Vec<u8>,
+    pub created: chrono::NaiveDateTime
 }
