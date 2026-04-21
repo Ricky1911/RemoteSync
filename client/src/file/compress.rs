@@ -73,7 +73,7 @@ fn zip_file(src_file: &Path, dest_file: &Path, options: FileOptions<'_, ()>) -> 
     Ok(())
 }
 
-pub fn compress_archieve(src: &Path, dest_file: &Path) -> anyhow::Result<()> {
+pub fn compress_archive(src: &Path, dest_file: &Path) -> anyhow::Result<()> {
     if dest_file.exists() {
         return Err(anyhow::Error::msg(format!(
             "File {} already exists",
@@ -95,7 +95,7 @@ pub fn compress_archieve(src: &Path, dest_file: &Path) -> anyhow::Result<()> {
     }
 }
 
-pub fn decompress_archieve(src: &Path, dest_dir: &Path) -> anyhow::Result<()> {
+pub fn decompress_archive(src: &Path, dest_dir: &Path) -> anyhow::Result<()> {
     if !dest_dir.exists() {
         std::fs::create_dir_all(dest_dir)?;
     }

@@ -49,7 +49,8 @@ impl Client {
         T: AsRef<Path>,
     {
         let aes_key = crate::file::crypto::generate_aes_keys();
-        let enc_path = crate::file::crypto::aes_encrypt_file(&path, &aes_key).await?;
+        let enc_path = path.as_ref().join("enc");
+        crate::file::crypto::aes_encrypt_file(&path, &enc_path, &aes_key).await?;
         let aes_key =
             common::crypto::rsa_encrypt_data(&self.public_key, &postcard::to_allocvec(&aes_key)?)?;
         let signature = common::crypto::sign_file(&self.private_key, &enc_path).await?;
@@ -67,7 +68,10 @@ impl Client {
         if response.status() == StatusCode::OK {
             Ok(())
         } else {
-            Err(anyhow::Error::msg(format!("Error response: {:?}", response)))
+            Err(anyhow::Error::msg(format!(
+                "Error response: {:?}",
+                response
+            )))
         }
     }
 
@@ -87,7 +91,10 @@ impl Client {
             .unwrap();
         let mut response = self.client.get(url).send().await?;
         if response.status() != StatusCode::OK {
-            return Err(anyhow::Error::msg(format!("Error response: {:?}", response)))
+            return Err(anyhow::Error::msg(format!(
+                "Error response: {:?}",
+                response
+            )));
         }
         if let Some(signature) = response.headers().get("x-file-signature")
             && let Some(key) = response.headers().get("x-file-key")
@@ -109,7 +116,8 @@ impl Client {
             let hash = hasher.finalize().to_vec();
             let verified = verify_signature(&self.public_key, &hash, &signature)?;
             if verified {
-                let dec_path = crate::file::crypto::aes_decrypt_file(&path, &aes_key).await?;
+                let dec_path = path.join("dec");
+                crate::file::crypto::aes_decrypt_file(&path, &dec_path, &aes_key).await?;
                 Ok(dec_path)
             } else {
                 Err(anyhow::Error::msg("Signature error"))

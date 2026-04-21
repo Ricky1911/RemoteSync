@@ -24,7 +24,8 @@ sha2.workspace = true
 zip = { version = "8.5.1", features = ["chrono"] }
 walkdir = "2.5.0"
 aes-gcm = { version = "0.10.3", features = ["stream"] }
+tempfile.workspace = true
 
 [dev-dependencies]
 server = { path = "../server" }
-tempfile.workspace = true
+fake.workspace = true

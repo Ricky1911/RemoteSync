@@ -76,7 +76,7 @@ impl TryFrom<&NewUser> for User {
 }
 
 #[post("user")]
-async fn post_user(new_user: Json<NewUser>, db_pool: Data<DbPool>) -> impl Responder {
+pub async fn post_user(new_user: Json<NewUser>, db_pool: Data<DbPool>) -> impl Responder {
     use crate::schema::users::dsl::*;
     if let Ok(conn) = &mut db_pool.get()
         && let Ok(existed_users) = users

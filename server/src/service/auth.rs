@@ -1,4 +1,4 @@
-use actix_web::{HttpResponse, Responder, post, web};
+use actix_web::{HttpMessage as _, HttpRequest, HttpResponse, Responder, post, web};
 use common::models::{LoginRequest, TokenResponse};
 use diesel::prelude::*;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -70,5 +70,13 @@ pub async fn login(
             }
         }
         Err(_) => HttpResponse::Unauthorized().body("Invalid credentials"),
+    }
+}
+
+pub fn get_user_uuid(req: &HttpRequest) -> Result<Uuid, HttpResponse> {
+    if let Some(&user_id) = req.extensions().get::<Uuid>() {
+        Ok(user_id)
+    } else {
+        Err(HttpResponse::Unauthorized().body("Invalid authorization token"))
     }
 }

@@ -110,7 +110,7 @@ where
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     #[test]
     fn test_rsa_encrypt_and_decrypt() {

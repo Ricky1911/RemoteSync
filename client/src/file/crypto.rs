@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use aes_gcm::{
     Aes256Gcm,
@@ -23,20 +23,29 @@ pub fn generate_aes_keys() -> AesKey {
     OsRng.fill_bytes(&mut key);
     OsRng.fill_bytes(&mut nonce);
     AesKey {
-        key: key,
-        nonce: nonce,
+        key,
+        nonce,
     }
 }
 
 const CHUNCK_SIZE: usize = 64 * 1024;
 
-pub async fn aes_encrypt_file<T>(path: T, key: &AesKey) -> anyhow::Result<PathBuf>
-where
-    T: AsRef<Path>,
-{
+pub async fn aes_encrypt_file(
+    src_path: impl AsRef<Path>,
+    out_path: impl AsRef<Path>,
+    key: &AesKey,
+) -> anyhow::Result<()> {
+    let src_path = src_path.as_ref();
+    let out_path = out_path.as_ref();
+    if out_path.exists() {
+        return Err(anyhow::Error::msg(format!(
+            "File {} already exists",
+            out_path.display()
+        )));
+    }
+
     let mut encryptor = EncryptorBE32::<Aes256Gcm>::new(&key.key.into(), &key.nonce.into());
-    let out_path = path.as_ref().with_added_extension("enc");
-    let in_file = tokio::fs::File::open(path).await?;
+    let in_file = tokio::fs::File::open(src_path).await?;
     let file_length = in_file.metadata().await?.len();
     let chunck_count = if file_length % CHUNCK_SIZE as u64 == 0 {
         file_length / CHUNCK_SIZE as u64
@@ -62,16 +71,25 @@ where
         .map_err(|_| anyhow::Error::msg("Failed to encrypt"))?;
     out_file.write_all(&buffer).await?;
     out_file.flush().await?;
-    Ok(out_path)
+    Ok(())
 }
 
-pub async fn aes_decrypt_file<T>(path: T, key: &AesKey) -> anyhow::Result<PathBuf>
-where
-    T: AsRef<Path>,
-{
+pub async fn aes_decrypt_file(
+    src_path: impl AsRef<Path>,
+    out_path: impl AsRef<Path>,
+    key: &AesKey,
+) -> anyhow::Result<()> {
+    let src_path = src_path.as_ref();
+    let out_path = out_path.as_ref();
+    if out_path.exists() {
+        return Err(anyhow::Error::msg(format!(
+            "File {} already exists",
+            out_path.display()
+        )));
+    }
+
     let mut decryptor = DecryptorBE32::<Aes256Gcm>::new(&key.key.into(), &key.nonce.into());
-    let out_path = path.as_ref().with_added_extension("dec");
-    let in_file = tokio::fs::File::open(path).await?;
+    let in_file = tokio::fs::File::open(src_path).await?;
     let file_length = in_file.metadata().await?.len();
     let chunck_count = if file_length % (CHUNCK_SIZE + 16) as u64 == 0 {
         file_length / (CHUNCK_SIZE + 16) as u64
@@ -97,11 +115,11 @@ where
         .map_err(|_| anyhow::Error::msg("Failed to decrypt"))?;
     out_file.write_all(&buffer).await?;
     out_file.flush().await?;
-    Ok(out_path)
+    Ok(())
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::io::{Read as _, Write as _};
 
     use super::*;
@@ -116,8 +134,14 @@ mod test {
             .collect();
         tmp_file.write_all(&data).unwrap();
         let aes_key = generate_aes_keys();
-        let enc_path = aes_encrypt_file(&tmp_file_path, &aes_key).await.unwrap();
-        let dec_path = aes_decrypt_file(enc_path, &aes_key).await.unwrap();
+        let enc_path = tmp_dir.path().join("enc");
+        let dec_path = tmp_dir.path().join("dec");
+        aes_encrypt_file(&tmp_file_path, &enc_path, &aes_key)
+            .await
+            .unwrap();
+        aes_decrypt_file(&enc_path, &dec_path, &aes_key)
+            .await
+            .unwrap();
         let mut dec_data = Vec::new();
         std::fs::File::open(dec_path)
             .unwrap()

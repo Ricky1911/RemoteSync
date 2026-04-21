@@ -16,6 +16,7 @@ use sha2::Digest;
 use tokio::io::{AsyncWriteExt as _, BufWriter};
 use uuid::Uuid;
 
+use crate::service::auth::get_user_uuid;
 use crate::service::user::User;
 use crate::{DbPool, config};
 use common::file_cleanup::FileCleanup;
@@ -51,11 +52,11 @@ impl Update {
     }
 }
 
-impl Into<UpdateInfo> for Update {
-    fn into(self) -> UpdateInfo {
+impl From<Update> for UpdateInfo {
+    fn from(val: Update) -> Self {
         UpdateInfo {
-            id: self.id,
-            created: self.created,
+            id: val.id,
+            created: val.created,
         }
     }
 }
@@ -68,10 +69,9 @@ async fn upload_file(
     db_pool: Data<DbPool>,
     req: HttpRequest,
 ) -> Result<HttpResponse, Error> {
-    let user_id = if let Some(&user_id) = req.extensions().get::<Uuid>() {
-        user_id
-    } else {
-        return Ok(HttpResponse::Unauthorized().body("Invalid authorization token"));
+    let user_id = match get_user_uuid(&req) {
+        Ok(uuid) => uuid,
+        Err(e) => return Ok(e),
     };
 
     let public_key = if let Ok(conn) = &mut db_pool.get()
@@ -84,13 +84,11 @@ async fn upload_file(
     } else {
         return Ok(HttpResponse::InternalServerError().body("Database error"));
     };
-    let verified = check_user_entry(&user_id, &entry, &db_pool);
-    if verified.is_err() {
-        return Ok(HttpResponse::InternalServerError().body("Database error"));
+
+    if let Err(e) = check_user_entry(&user_id, &entry, &db_pool) {
+        return Ok(e);
     }
-    if !verified.unwrap() {
-        return Ok(HttpResponse::Unauthorized().body("Invalid entry"));
-    }
+
     let file_dir = config
         .save_path
         .join(user_id.to_string())
@@ -98,28 +96,14 @@ async fn upload_file(
     if !file_dir.exists() {
         std::fs::create_dir_all(&file_dir)?;
     }
-    let NewUpdate { aes_key, signature } =
-        if let Some(Ok(mut metadata_field)) = payload.next().await {
-            if !metadata_field
-                .content_disposition()
-                .unwrap()
-                .get_name()
-                .unwrap_or("")
-                .starts_with("metadata")
-            {
-                return Ok(HttpResponse::BadRequest().body("Invalid multipart form"));
-            } else {
-                if let Ok(Ok(metadata)) = metadata_field.bytes(2000).await
-                    && let Ok(update_info) = postcard::from_bytes::<NewUpdate>(&metadata)
-                {
-                    update_info
-                } else {
-                    return Ok(HttpResponse::BadRequest().body("Invalid metadata"));
-                }
-            }
-        } else {
-            return Ok(HttpResponse::BadRequest().body("Invalid multipart form"));
-        };
+    let NewUpdate { aes_key, signature } = if let Some(Ok(metadata_field)) = payload.next().await {
+        match parse_metadata(metadata_field).await {
+            Ok(metadata) => metadata,
+            Err(e) => return Ok(e),
+        }
+    } else {
+        return Ok(HttpResponse::BadRequest().body("Invalid multipart form"));
+    };
     if let Some(Ok(mut file_field)) = payload.next().await {
         if !file_field
             .content_disposition()
@@ -166,9 +150,33 @@ async fn upload_file(
     Ok(HttpResponse::Ok().finish())
 }
 
+async fn parse_metadata(
+    mut metadata_field: actix_multipart::Field,
+) -> Result<NewUpdate, HttpResponse> {
+    if !metadata_field
+        .content_disposition()
+        .unwrap()
+        .get_name()
+        .unwrap_or("")
+        .starts_with("metadata")
+    {
+        return Err(HttpResponse::BadRequest().body("Invalid multipart form"));
+    } else {
+        if let Ok(Ok(metadata)) = metadata_field.bytes(2000).await
+            && let Ok(update_info) = postcard::from_bytes::<NewUpdate>(&metadata)
+        {
+            Ok(update_info)
+        } else {
+            return Err(HttpResponse::BadRequest().body("Invalid metadata"));
+        }
+    }
+}
+
+//async fn parse_file(mut file_field: actix_multipart::Field) {}
+
 #[derive(Deserialize)]
 struct UpdateQuery {
-    id: Option<Uuid>
+    id: Option<Uuid>,
 }
 
 #[get("file/{entry}")]
@@ -179,18 +187,13 @@ async fn download_file(
     db_pool: Data<DbPool>,
     req: HttpRequest,
 ) -> Result<HttpResponse, Error> {
-    let user_id = if let Some(&user_id) = req.extensions().get::<Uuid>() {
-        user_id
-    } else {
-        return Ok(HttpResponse::Unauthorized().body("Invalid authorization token"));
+    let user_id = match get_user_uuid(&req) {
+        Ok(uuid) => uuid,
+        Err(e) => return Ok(e),
     };
 
-    let verified = check_user_entry(&user_id, &entry_id, &db_pool);
-    if verified.is_err() {
-        return Ok(HttpResponse::InternalServerError().body("Database error"));
-    }
-    if !verified.unwrap() {
-        return Ok(HttpResponse::Unauthorized().body("Invalid entry"));
+    if let Err(e) = check_user_entry(&user_id, &entry_id, &db_pool) {
+        return Ok(e);
     }
 
     let update = if let Ok(conn) = &mut db_pool.get() {
@@ -251,10 +254,9 @@ async fn download_file(
 
 #[post("entry")]
 async fn create_entry(db_pool: Data<DbPool>, req: HttpRequest) -> impl Responder {
-    let user_id = if let Some(&user_id) = req.extensions().get::<Uuid>() {
-        user_id
-    } else {
-        return HttpResponse::Unauthorized().body("Invalid authorization token");
+    let user_id = match get_user_uuid(&req) {
+        Ok(uuid) => uuid,
+        Err(e) => return e,
     };
 
     if let Ok(conn) = &mut db_pool.get() {
@@ -290,12 +292,8 @@ async fn query_update(
         return HttpResponse::Unauthorized().body("Invalid authorization token");
     };
 
-    let verified = check_user_entry(&user_id, &entry_id, &db_pool);
-    if verified.is_err() {
-        return HttpResponse::InternalServerError().body("Database error");
-    }
-    if !verified.unwrap() {
-        return HttpResponse::Unauthorized().body("Invalid entry");
+    if let Err(e) = check_user_entry(&user_id, &entry_id, &db_pool) {
+        return e;
     }
 
     use crate::schema::updates::dsl;
@@ -341,12 +339,20 @@ fn check_user_entry(
     user_id: &Uuid,
     entry_id: &Uuid,
     db_pool: &Data<DbPool>,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> Result<(), HttpResponse> {
     use crate::schema::entries::dsl;
-    let conn = &mut db_pool.get()?;
-    let count = dsl::entries
-        .filter(dsl::user_id.eq(user_id).and(dsl::id.eq(entry_id)))
-        .count()
-        .get_result::<i64>(conn)?;
-    Ok(count > 0)
+    if let Ok(conn) = &mut db_pool.get()
+        && let Ok(count) = dsl::entries
+            .filter(dsl::user_id.eq(user_id).and(dsl::id.eq(entry_id)))
+            .count()
+            .get_result::<i64>(conn)
+    {
+        if count > 0 {
+            Ok(())
+        } else {
+            Err(HttpResponse::NotFound().body("Invalid entry"))
+        }
+    } else {
+        Err(HttpResponse::InternalServerError().body("Database error"))
+    }
 }
