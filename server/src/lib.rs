@@ -14,8 +14,6 @@ use diesel::{
 use dotenv::dotenv;
 use std::net::TcpListener;
 
-use crate::service::query_update;
-
 type DbPool = Pool<ConnectionManager<PgConnection>>;
 
 fn build_dp_pool(database_url: &str) -> DbPool {
@@ -32,7 +30,9 @@ pub fn run(config: ServerConfig, listener: TcpListener) -> Result<Server, std::i
     let config_data = Data::new(config);
     let server = HttpServer::new(move || {
         App::new()
-            .wrap(crate::middleware::AuthMiddleware)
+            .wrap(crate::middleware::AuthMiddleware {
+                secret_key: config_data.secret_key.clone(),
+            })
             .app_data(Data::clone(&config_data))
             .app_data(Data::clone(&db_pool))
             .service(service::login)
@@ -40,7 +40,7 @@ pub fn run(config: ServerConfig, listener: TcpListener) -> Result<Server, std::i
             .service(service::upload_file)
             .service(service::download_file)
             .service(service::create_entry)
-            .service(query_update)
+            .service(service::query_update)
     })
     .listen(listener)?
     .run();

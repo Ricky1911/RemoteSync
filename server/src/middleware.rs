@@ -9,7 +9,9 @@ use std::rc::Rc;
 
 use crate::service::auth::verify_token;
 
-pub struct AuthMiddleware;
+pub struct AuthMiddleware {
+    pub secret_key: Vec<u8>,
+}
 
 impl<S, B> Transform<S, ServiceRequest> for AuthMiddleware
 where
@@ -26,12 +28,14 @@ where
     fn new_transform(&self, service: S) -> Self::Future {
         ready(Ok(AuthMiddlewareInner {
             service: Rc::new(service),
+            secret_key: self.secret_key.clone(),
         }))
     }
 }
 
 pub struct AuthMiddlewareInner<S> {
     service: Rc<S>,
+    secret_key: Vec<u8>,
 }
 
 impl<S, B> Service<ServiceRequest> for AuthMiddlewareInner<S>
@@ -64,8 +68,10 @@ where
             .and_then(|header| header.to_str().ok())
             .and_then(|header| header.strip_prefix("Bearer "));
 
+        let secret_key = self.secret_key.clone();
+
         match token {
-            Some(token) => match verify_token(token) {
+            Some(token) => match verify_token(token, &secret_key) {
                 Ok(user_id) => {
                     req.extensions_mut().insert(user_id);
                     let fut = self.service.call(req);
