@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-use crate::{DbPool, ServerConfig};
+use crate::{DbPool, config::ServerConfig};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
@@ -14,7 +14,10 @@ struct Claims {
     exp: usize,
 }
 
-pub fn generate_token(user_id: Uuid, secret_key: &[u8]) -> Result<String, jsonwebtoken::errors::Error> {
+pub fn generate_token(
+    user_id: Uuid,
+    secret_key: &[u8],
+) -> Result<String, jsonwebtoken::errors::Error> {
     let expiration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")

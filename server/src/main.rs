@@ -8,9 +8,10 @@ async fn main() -> std::io::Result<()> {
         .build()
         .expect("Error on building config");
 
-    let config: server::ServerConfig = config_
+    let config_builder: server::config::ServerConfigBuilder = config_
         .try_deserialize()
         .expect("Error on deserializing config file");
+    let config = config_builder.build();
     let address = config.address;
     let listener = TcpListener::bind(address)?;
     println!("Server started, listening to {}", listener.local_addr()?);

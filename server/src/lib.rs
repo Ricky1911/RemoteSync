@@ -1,4 +1,4 @@
-mod config;
+pub mod config;
 mod middleware;
 mod schema;
 mod service;
@@ -6,7 +6,6 @@ mod service;
 mod tests;
 
 use actix_web::{App, HttpServer, dev::Server, web::Data};
-pub use config::ServerConfig;
 use diesel::{
     PgConnection,
     r2d2::{ConnectionManager, Pool},
@@ -23,7 +22,10 @@ fn build_dp_pool(database_url: &str) -> DbPool {
         .expect("unable to connect to database")
 }
 
-pub fn run(config: ServerConfig, listener: TcpListener) -> Result<Server, std::io::Error> {
+pub fn run(
+    config: crate::config::ServerConfig,
+    listener: TcpListener,
+) -> Result<Server, std::io::Error> {
     dotenv().ok();
     let database_url = std::env::var("DATABASE_URL").unwrap();
     let db_pool = Data::new(build_dp_pool(&database_url));

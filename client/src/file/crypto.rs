@@ -11,7 +11,7 @@ use rsa::rand_core::RngCore as _;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct AesKey {
     pub key: [u8; 32],
     pub nonce: [u8; 7],
@@ -22,10 +22,7 @@ pub fn generate_aes_keys() -> AesKey {
     let mut nonce: [u8; 7] = [0; 7];
     OsRng.fill_bytes(&mut key);
     OsRng.fill_bytes(&mut nonce);
-    AesKey {
-        key,
-        nonce,
-    }
+    AesKey { key, nonce }
 }
 
 const CHUNCK_SIZE: usize = 64 * 1024;
