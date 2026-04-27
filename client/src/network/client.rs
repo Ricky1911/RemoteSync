@@ -1,5 +1,8 @@
 use base64::{Engine, prelude::BASE64_STANDARD};
-use common::{crypto::verify_signature, models::NewUpdate};
+use common::{
+    crypto::verify_signature,
+    models::{EntryInfo, NewUpdate, UpdateInfo},
+};
 use reqwest::{
     StatusCode,
     header::{self, HeaderMap, HeaderValue},
@@ -44,7 +47,12 @@ impl Client {
         }
     }
 
-    pub async fn upload<T>(&mut self, entry: Uuid, path: T, aes_key: &AesKey) -> anyhow::Result<()>
+    pub async fn upload<T>(
+        &mut self,
+        entry: Uuid,
+        path: T,
+        aes_key: &AesKey,
+    ) -> anyhow::Result<UpdateInfo>
     where
         T: AsRef<Path>,
     {
@@ -61,13 +69,11 @@ impl Client {
         let form = reqwest::multipart::Form::new()
             .part("metadata", metadata_part)
             .part("file", file_part);
-        let url = self
-            .api_url
-            .join(&format!("file/{}", &entry.to_string()))
-            .unwrap();
+        let url = self.api_url.join(&format!("file/{}", &entry.to_string()))?;
         let response = self.client.post(url).multipart(form).send().await?;
         if response.status() == StatusCode::OK {
-            Ok(())
+            let update_info: UpdateInfo = response.json().await?;
+            Ok(update_info)
         } else {
             Err(anyhow::Error::msg(format!(
                 "Error response: {:?}",
@@ -84,16 +90,17 @@ impl Client {
     where
         T: AsRef<Path>,
     {
-        if !save_dir.as_ref().is_dir() {
+        let save_dir = save_dir.as_ref();
+        if !save_dir.is_dir() {
             return Err(anyhow::Error::msg(format!(
                 "{:?} is not a directory",
-                save_dir.as_ref()
+                save_dir
             )));
         }
-        let url = self
-            .api_url
-            .join(&format!("file/{}", &entry.to_string()))
-            .unwrap();
+        if !save_dir.exists() {
+            std::fs::create_dir_all(save_dir)?;
+        }
+        let url = self.api_url.join(&format!("file/{}", &entry.to_string()))?;
         let mut response = self.client.get(url).send().await?;
         if response.status() != StatusCode::OK {
             return Err(anyhow::Error::msg(format!(
@@ -109,7 +116,7 @@ impl Client {
             let aes_key: crate::file::crypto::AesKey =
                 postcard::from_bytes(&common::crypto::rsa_decrypt_data(&self.private_key, &key)?)?;
             let fname = entry.to_string();
-            let path = save_dir.as_ref().join(&fname);
+            let path = save_dir.join(&fname);
             let mut file = BufWriter::new(tokio::fs::File::create(&path).await?);
             let _file_cleanup = common::file_cleanup::FileCleanup::new(path.clone());
             let mut hasher = sha2::Sha256::new();
@@ -139,12 +146,25 @@ impl Client {
             .post(self.api_url.join("entry").unwrap())
             .send()
             .await?;
-        if response.status().is_success() {
-            let entry_info: common::models::EntryInfo = response.json().await?;
-            Ok(entry_info.uuid)
-        } else {
-            panic!()
+        match response.status() {
+            StatusCode::OK => {
+                let entry_info: EntryInfo = response.json().await?;
+                Ok(entry_info.uuid)
+            }
+            _ => Err(anyhow::Error::msg(format!(
+                "Unexpected error with response: {}",
+                response.text().await.unwrap()
+            ))),
         }
+    }
+
+    pub async fn latest_update_in_entry(&mut self, entry: Uuid) -> anyhow::Result<UpdateInfo> {
+        let query_url = self
+            .api_url
+            .join(&format!("entry/{}/latest", entry.to_string()))?;
+        let response = self.client.get(query_url).send().await?;
+        let update_info: UpdateInfo = response.json().await?;
+        Ok(update_info)
     }
 
     async fn login(
@@ -202,14 +222,10 @@ pub async fn create_user(
                 .expect("Failed to write private pem file");
             Ok(())
         }
-        StatusCode::CONFLICT => {
-            panic!("Username conflict")
-        }
-        _ => {
-            panic!(
-                "Unexpected error with response: {}",
-                response.text().await.unwrap()
-            )
-        }
+        StatusCode::CONFLICT => Err(anyhow::Error::msg("Username conflict")),
+        _ => Err(anyhow::Error::msg(format!(
+            "Unexpected error with response: {}",
+            response.text().await.unwrap()
+        ))),
     }
 }

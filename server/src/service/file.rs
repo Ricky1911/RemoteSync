@@ -96,6 +96,7 @@ async fn upload_file(
     if !file_dir.exists() {
         std::fs::create_dir_all(&file_dir)?;
     }
+
     let NewUpdate { aes_key, signature } = if let Some(Ok(metadata_field)) = payload.next().await {
         match parse_metadata(metadata_field).await {
             Ok(metadata) => metadata,
@@ -104,6 +105,7 @@ async fn upload_file(
     } else {
         return Ok(HttpResponse::BadRequest().body("Invalid multipart form"));
     };
+
     if let Some(Ok(mut file_field)) = payload.next().await {
         if !file_field
             .content_disposition()
@@ -139,15 +141,16 @@ async fn upload_file(
                     .execute(conn)
             {
                 cleanup_guard.commit();
+                Ok(HttpResponse::Ok().json(UpdateInfo::from(update)))
             } else {
-                return Ok(HttpResponse::InternalServerError().body("Database error"));
+                Ok(HttpResponse::InternalServerError().body("Database error"))
             }
         } else {
-            return Ok(HttpResponse::BadRequest().body("Invalid signature"));
+            Ok(HttpResponse::BadRequest().body("Invalid signature"))
         }
+    } else {
+        Ok(HttpResponse::BadRequest().body("Invalid multipart form"))
     }
-
-    Ok(HttpResponse::Ok().finish())
 }
 
 async fn parse_metadata(
