@@ -6,8 +6,8 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::sync::Mutex;
 use tokio::{fs, task::JoinSet};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
@@ -75,9 +75,19 @@ impl FileManifest {
             };
         }
         while let Some(res) = join_set.join_next().await {
-            if let Err(e) = res.unwrap() {
-                token.cancel();
-                return Err(e.into());
+            match res {
+                Ok(Ok(())) => {}
+                Ok(Err(io_err)) => {
+                    token.cancel();
+                    return Err(io_err.into());
+                }
+                Err(join_err) => {
+                    if join_err.is_panic() {
+                        std::panic::resume_unwind(join_err.into_panic())
+                    } else {
+                        return Err(anyhow::Error::msg("Task cancelled"));
+                    }
+                }
             }
         }
         Ok(FileManifest {
