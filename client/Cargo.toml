@@ -25,6 +25,7 @@ walkdir = "2.5.0"
 aes-gcm = { version = "0.10.3", features = ["stream"] }
 tempfile.workspace = true
 clap = { version = "4.6.1", features = ["derive"] }
+chrono.workspace = true
 
 [dev-dependencies]
 server = { path = "../server" }

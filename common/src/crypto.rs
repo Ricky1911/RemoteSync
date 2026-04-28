@@ -71,7 +71,7 @@ pub fn bytes_to_public_key(bytes: &[u8]) -> Result<RsaPublicKey, Error> {
     postcard::from_bytes(bytes).map_err(|_| Error::DeserializeError)
 }
 
-pub async fn stream_hash<T>(path: T) -> Result<Vec<u8>, Error>
+pub async fn stream_hash<T>(path: T) -> Result<[u8;32], std::io::Error>
 where
     T: AsRef<Path>,
 {
@@ -86,7 +86,7 @@ where
         hasher.update(&buffer[..bytes_read]);
     }
 
-    Ok(hasher.finalize().to_vec())
+    Ok(hasher.finalize().into())
 }
 
 pub async fn sign_file<T>(private_key: &RsaPrivateKey, path: T) -> Result<Vec<u8>, Error>

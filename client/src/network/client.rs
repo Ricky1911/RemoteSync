@@ -161,7 +161,7 @@ impl Client {
     pub async fn latest_update_in_entry(&mut self, entry: Uuid) -> anyhow::Result<UpdateInfo> {
         let query_url = self
             .api_url
-            .join(&format!("entry/{}/latest", entry.to_string()))?;
+            .join(&format!("entry/{}/latest", entry))?;
         let response = self.client.get(query_url).send().await?;
         let update_info: UpdateInfo = response.json().await?;
         Ok(update_info)

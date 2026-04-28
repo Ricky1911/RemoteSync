@@ -1,6 +1,7 @@
 pub mod archive;
 pub mod compress;
 pub mod crypto;
+pub mod manifest;
 
 #[cfg(test)]
 mod tests {

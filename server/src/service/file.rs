@@ -163,14 +163,14 @@ async fn parse_metadata(
         .unwrap_or("")
         .starts_with("metadata")
     {
-        return Err(HttpResponse::BadRequest().body("Invalid multipart form"));
+        Err(HttpResponse::BadRequest().body("Invalid multipart form"))
     } else {
         if let Ok(Ok(metadata)) = metadata_field.bytes(2000).await
             && let Ok(update_info) = postcard::from_bytes::<NewUpdate>(&metadata)
         {
             Ok(update_info)
         } else {
-            return Err(HttpResponse::BadRequest().body("Invalid metadata"));
+            Err(HttpResponse::BadRequest().body("Invalid metadata"))
         }
     }
 }
