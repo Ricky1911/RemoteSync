@@ -4,10 +4,8 @@ use std::{
     collections::HashMap,
     os::windows::fs::MetadataExt,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 use tokio::{fs, task::JoinSet};
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
@@ -40,8 +38,9 @@ pub struct FileManifest {
 
 impl FileManifest {
     pub async fn from_dir(src_path: &Path) -> anyhow::Result<Self> {
-        let manifest = Arc::new(Mutex::new(HashMap::new()));
-        let mut join_set = JoinSet::<Result<(), std::io::Error>>::new();
+        let mut manifest = HashMap::new();
+        let mut join_set =
+            JoinSet::<Result<Option<(PathBuf, FileMetadata)>, std::io::Error>>::new();
         let walker = WalkDir::new(src_path);
         let token = CancellationToken::new();
         for entry_result in walker.into_iter() {
@@ -58,25 +57,28 @@ impl FileManifest {
             if path.is_file() {
                 let path = path.to_path_buf();
                 let path_stripped = path_stripped.to_path_buf();
-                let manifest = Arc::clone(&manifest);
                 let token = token.clone();
-                let task = async move {
-                    let metadata = FileMetadata::from_file(&path.to_path_buf()).await?;
-                    let mut guard = manifest.lock().await;
-                    guard.insert(path_stripped.to_path_buf(), metadata);
-                    Ok(())
-                };
                 join_set.spawn(async move {
                     tokio::select! {
-                        _ = token.cancelled() => Ok(()),
-                        result = task => result
+                        _ = token.cancelled() => Ok(None),
+                        result = FileMetadata::from_file(&path) => {
+                            match result {
+                                Ok(metadata) => Ok(Some((path_stripped, metadata))),
+                                Err(e) => Err(e)
+                            }
+                        }
                     }
                 });
             };
         }
         while let Some(res) = join_set.join_next().await {
             match res {
-                Ok(Ok(())) => {}
+                Ok(Ok(Some((path, metadata)))) => {
+                    manifest.insert(path, metadata);
+                }
+                Ok(Ok(None)) => {
+                    return Err(anyhow::Error::msg("Task cancelled"));
+                }
                 Ok(Err(io_err)) => {
                     token.cancel();
                     return Err(io_err.into());
@@ -90,11 +92,7 @@ impl FileManifest {
                 }
             }
         }
-        Ok(FileManifest {
-            manifest: Arc::try_unwrap(manifest)
-                .expect("Reference leaked")
-                .into_inner(),
-        })
+        Ok(FileManifest { manifest })
     }
 }
 
